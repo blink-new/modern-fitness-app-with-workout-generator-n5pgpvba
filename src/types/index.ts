@@ -19,7 +19,7 @@ export interface Workout {
   id: string
   userId: string
   name: string
-  muscleGroup: string
+  muscleGroups: string[]
   status: 'planned' | 'active' | 'completed'
   createdAt: string
   completedAt?: string

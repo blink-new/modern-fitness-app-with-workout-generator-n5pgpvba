@@ -210,7 +210,11 @@ export default function HistoryPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
                           <h4 className="font-medium">{workout.name}</h4>
-                          <Badge variant="secondary">{workout.muscleGroup}</Badge>
+                          <div className="flex gap-1">
+                            {(workout.muscleGroups || [workout.muscleGroup]).filter(Boolean).map((group) => (
+                              <Badge key={group} variant="secondary">{group}</Badge>
+                            ))}
+                          </div>
                           {stats.completionRate === 100 && (
                             <Badge variant="default" className="bg-green-600">
                               <Award className="w-3 h-3 mr-1" />

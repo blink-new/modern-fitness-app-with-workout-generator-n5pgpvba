@@ -264,12 +264,19 @@ export default function ActiveWorkoutPage() {
   const loadAvailableExercises = async () => {
     if (!activeWorkout) return
 
+    const currentExercise = workoutExercises[currentExerciseIndex]
+    if (!currentExercise) return
+
     try {
       const user = await blink.auth.me()
+      const currentExerciseData = currentExercise.exercise
+      
+      // Загружаем упражнения только того же типа и группы мышц
       const allExercises = await blink.db.exercises.list({
         where: { 
           userId: user.id,
-          muscleGroup: activeWorkout.muscleGroup
+          muscleGroup: currentExerciseData.muscleGroup,
+          exerciseType: currentExerciseData.exerciseType
         }
       })
       
@@ -354,7 +361,11 @@ export default function ActiveWorkoutPage() {
         <h2 className="text-2xl font-bold">{activeWorkout.name}</h2>
         <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
           <span>Упражнение {currentExerciseIndex + 1} из {workoutExercises.length}</span>
-          <Badge variant="secondary">{activeWorkout.muscleGroup}</Badge>
+          <div className="flex gap-1">
+            {(activeWorkout.muscleGroups || [activeWorkout.muscleGroup]).filter(Boolean).map((group) => (
+              <Badge key={group} variant="secondary">{group}</Badge>
+            ))}
+          </div>
         </div>
         <Progress value={progress} className="w-full max-w-md mx-auto" />
       </div>

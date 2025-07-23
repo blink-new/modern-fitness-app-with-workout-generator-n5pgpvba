@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Zap, Plus, Shuffle, Target } from 'lucide-react'
+import { Zap, Plus, Shuffle, Target, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -12,7 +12,7 @@ import { Exercise, Workout, MUSCLE_GROUPS, EXERCISE_TYPES } from '@/types'
 export default function WorkoutGeneratorPage() {
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [loading, setLoading] = useState(false)
-  const [selectedMuscleGroup, setSelectedMuscleGroup] = useState('')
+  const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([])
   const [selectedExerciseTypes, setSelectedExerciseTypes] = useState<string[]>(['main'])
   const [exerciseCount, setExerciseCount] = useState(3)
   const [generatedWorkout, setGeneratedWorkout] = useState<Exercise[]>([])
@@ -34,12 +34,22 @@ export default function WorkoutGeneratorPage() {
     loadExercises()
   }, [])
 
-  const generateWorkout = () => {
-    if (!selectedMuscleGroup) return
+  const addMuscleGroup = (muscleGroup: string) => {
+    if (!selectedMuscleGroups.includes(muscleGroup)) {
+      setSelectedMuscleGroups(prev => [...prev, muscleGroup])
+    }
+  }
 
-    // Фильтруем упражнения по группе мышц и типам
+  const removeMuscleGroup = (muscleGroup: string) => {
+    setSelectedMuscleGroups(prev => prev.filter(mg => mg !== muscleGroup))
+  }
+
+  const generateWorkout = () => {
+    if (selectedMuscleGroups.length === 0) return
+
+    // Фильтруем упражнения по группам мышц и типам
     const filteredExercises = exercises.filter(exercise => 
-      exercise.muscleGroup === selectedMuscleGroup &&
+      selectedMuscleGroups.includes(exercise.muscleGroup) &&
       selectedExerciseTypes.includes(exercise.exerciseType)
     )
 
@@ -57,9 +67,11 @@ export default function WorkoutGeneratorPage() {
 
   const replaceExercise = (index: number) => {
     const currentExercise = generatedWorkout[index]
+    
+    // Ищем замену только среди упражнений того же типа и группы мышц
     const availableExercises = exercises.filter(exercise => 
-      exercise.muscleGroup === selectedMuscleGroup &&
-      selectedExerciseTypes.includes(exercise.exerciseType) &&
+      exercise.muscleGroup === currentExercise.muscleGroup &&
+      exercise.exerciseType === currentExercise.exerciseType &&
       !generatedWorkout.some(w => w.id === exercise.id)
     )
 
@@ -80,11 +92,17 @@ export default function WorkoutGeneratorPage() {
       
       // Создаем тренировку
       const workoutId = `workout_${Date.now()}`
+      const workoutName = selectedMuscleGroups.length === 1 
+        ? `Тренировка ${selectedMuscleGroups[0]}`
+        : `Тренировка ${selectedMuscleGroups.join(', ')}`
+
       await blink.db.workouts.create({
         id: workoutId,
         userId: user.id,
-        name: `Тренировка ${selectedMuscleGroup}`,
-        muscleGroup: selectedMuscleGroup,
+        name: workoutName,
+        muscleGroups: selectedMuscleGroups,
+        // Сохраняем также в старом формате для совместимости
+        muscleGroup: selectedMuscleGroups[0] || '',
         status: 'planned',
         createdAt: new Date().toISOString()
       })
@@ -118,7 +136,7 @@ export default function WorkoutGeneratorPage() {
 
       // Очищаем сгенерированную тренировку
       setGeneratedWorkout([])
-      setSelectedMuscleGroup('')
+      setSelectedMuscleGroups([])
       setSelectedExerciseTypes(['main'])
       setExerciseCount(3)
       
@@ -141,7 +159,7 @@ export default function WorkoutGeneratorPage() {
 
   const getAvailableExercisesCount = () => {
     return exercises.filter(exercise => 
-      exercise.muscleGroup === selectedMuscleGroup &&
+      selectedMuscleGroups.includes(exercise.muscleGroup) &&
       selectedExerciseTypes.includes(exercise.exerciseType)
     ).length
   }
@@ -167,17 +185,36 @@ export default function WorkoutGeneratorPage() {
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label>Группа мышц *</Label>
-              <Select value={selectedMuscleGroup} onValueChange={setSelectedMuscleGroup}>
+              <Label>Группы мышц *</Label>
+              <Select onValueChange={addMuscleGroup}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Выберите группу мышц" />
+                  <SelectValue placeholder="Добавить группу мышц" />
                 </SelectTrigger>
                 <SelectContent>
-                  {MUSCLE_GROUPS.map((group) => (
+                  {MUSCLE_GROUPS.filter(group => !selectedMuscleGroups.includes(group)).map((group) => (
                     <SelectItem key={group} value={group}>{group}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              
+              {/* Selected muscle groups */}
+              {selectedMuscleGroups.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {selectedMuscleGroups.map((group) => (
+                    <Badge key={group} variant="secondary" className="flex items-center gap-1">
+                      {group}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-4 w-4 p-0 hover:bg-transparent"
+                        onClick={() => removeMuscleGroup(group)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -214,7 +251,7 @@ export default function WorkoutGeneratorPage() {
             </div>
           </div>
 
-          {selectedMuscleGroup && (
+          {selectedMuscleGroups.length > 0 && (
             <div className="text-sm text-muted-foreground">
               Доступно упражнений: {getAvailableExercisesCount()}
             </div>
@@ -222,7 +259,7 @@ export default function WorkoutGeneratorPage() {
 
           <Button 
             onClick={generateWorkout}
-            disabled={!selectedMuscleGroup || selectedExerciseTypes.length === 0}
+            disabled={selectedMuscleGroups.length === 0 || selectedExerciseTypes.length === 0}
             className="w-full"
           >
             <Zap className="w-4 h-4 mr-2" />
@@ -255,6 +292,9 @@ export default function WorkoutGeneratorPage() {
                           <span>{exercise.sets} подходов</span>
                           <span>{exercise.reps} повторений</span>
                           <Badge variant="outline">
+                            {exercise.muscleGroup}
+                          </Badge>
+                          <Badge variant="outline">
                             {EXERCISE_TYPES.find(t => t.value === exercise.exerciseType)?.label}
                           </Badge>
                         </div>
@@ -270,7 +310,7 @@ export default function WorkoutGeneratorPage() {
                     variant="ghost"
                     size="sm"
                     onClick={() => replaceExercise(index)}
-                    title="Заменить упражнение"
+                    title="Заменить упражнение (только в рамках того же типа и группы мышц)"
                   >
                     <Shuffle className="w-4 h-4" />
                   </Button>
