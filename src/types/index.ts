@@ -20,6 +20,7 @@ export interface Workout {
   userId: string
   name: string
   muscleGroups: string[]
+  muscleGroup?: string // Для обратной совместимости
   status: 'planned' | 'active' | 'completed'
   createdAt: string
   completedAt?: string

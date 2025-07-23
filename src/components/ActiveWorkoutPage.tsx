@@ -129,14 +129,29 @@ export default function ActiveWorkoutPage() {
         },
         orderBy: { createdAt: 'desc' }
       })
-      setWorkouts(data)
+      
+      // Парсим muscleGroups из JSON строки
+      const processedData = data.map(workout => ({
+        ...workout,
+        muscleGroups: (() => {
+          try {
+            return typeof workout.muscleGroups === 'string' 
+              ? JSON.parse(workout.muscleGroups)
+              : workout.muscleGroups || [workout.muscleGroup || '']
+          } catch {
+            return [workout.muscleGroup || '']
+          }
+        })()
+      }))
+      
+      setWorkouts(processedData)
       
       // Автоматически выбираем активную тренировку или первую запланированную
-      const active = data.find(w => w.status === 'active')
+      const active = processedData.find(w => w.status === 'active')
       if (active) {
         await startWorkout(active)
-      } else if (data.length > 0) {
-        await startWorkout(data[0])
+      } else if (processedData.length > 0) {
+        await startWorkout(processedData[0])
       }
     } catch (error) {
       console.error('Ошибка загрузки тренировок:', error)

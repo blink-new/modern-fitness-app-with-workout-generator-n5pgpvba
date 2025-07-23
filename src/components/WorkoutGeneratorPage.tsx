@@ -1,21 +1,28 @@
 import { useState, useEffect } from 'react'
-import { Zap, Plus, Shuffle, Target, X } from 'lucide-react'
+import { Zap, Plus, Target, X, Check, ChevronRight, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import blink from '@/blink/client'
-import { Exercise, Workout, MUSCLE_GROUPS, EXERCISE_TYPES } from '@/types'
+import { Exercise, MUSCLE_GROUPS, EXERCISE_TYPES } from '@/types'
+
+interface MuscleGroupSelection {
+  muscleGroup: string
+  selectedExercises: Exercise[]
+  isOpen: boolean
+}
 
 export default function WorkoutGeneratorPage() {
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([])
-  const [selectedExerciseTypes, setSelectedExerciseTypes] = useState<string[]>(['main'])
-  const [exerciseCount, setExerciseCount] = useState(3)
-  const [generatedWorkout, setGeneratedWorkout] = useState<Exercise[]>([])
+  const [muscleGroupSelections, setMuscleGroupSelections] = useState<MuscleGroupSelection[]>([])
+  const [step, setStep] = useState<'groups' | 'exercises'>('groups')
 
   const loadExercises = async () => {
     try {
@@ -42,49 +49,67 @@ export default function WorkoutGeneratorPage() {
 
   const removeMuscleGroup = (muscleGroup: string) => {
     setSelectedMuscleGroups(prev => prev.filter(mg => mg !== muscleGroup))
+    setMuscleGroupSelections(prev => prev.filter(mg => mg.muscleGroup !== muscleGroup))
   }
 
-  const generateWorkout = () => {
-    if (selectedMuscleGroups.length === 0) return
-
-    // Фильтруем упражнения по группам мышц и типам
-    const filteredExercises = exercises.filter(exercise => 
-      selectedMuscleGroups.includes(exercise.muscleGroup) &&
-      selectedExerciseTypes.includes(exercise.exerciseType)
-    )
-
-    if (filteredExercises.length === 0) {
-      setGeneratedWorkout([])
-      return
-    }
-
-    // Перемешиваем и берем нужное количество
-    const shuffled = [...filteredExercises].sort(() => Math.random() - 0.5)
-    const selected = shuffled.slice(0, Math.min(exerciseCount, shuffled.length))
-    
-    setGeneratedWorkout(selected)
+  const proceedToExerciseSelection = () => {
+    // Создаем структуру для выбора упражнений по каждой группе мышц
+    const selections: MuscleGroupSelection[] = selectedMuscleGroups.map(muscleGroup => ({
+      muscleGroup,
+      selectedExercises: [],
+      isOpen: true
+    }))
+    setMuscleGroupSelections(selections)
+    setStep('exercises')
   }
 
-  const replaceExercise = (index: number) => {
-    const currentExercise = generatedWorkout[index]
-    
-    // Ищем замену только среди упражнений того же типа и группы мышц
-    const availableExercises = exercises.filter(exercise => 
-      exercise.muscleGroup === currentExercise.muscleGroup &&
-      exercise.exerciseType === currentExercise.exerciseType &&
-      !generatedWorkout.some(w => w.id === exercise.id)
+  const toggleExerciseSelection = (muscleGroup: string, exercise: Exercise) => {
+    setMuscleGroupSelections(prev => 
+      prev.map(mg => {
+        if (mg.muscleGroup === muscleGroup) {
+          const isSelected = mg.selectedExercises.some(ex => ex.id === exercise.id)
+          return {
+            ...mg,
+            selectedExercises: isSelected 
+              ? mg.selectedExercises.filter(ex => ex.id !== exercise.id)
+              : [...mg.selectedExercises, exercise]
+          }
+        }
+        return mg
+      })
     )
+  }
 
-    if (availableExercises.length === 0) return
+  const toggleMuscleGroupOpen = (muscleGroup: string) => {
+    setMuscleGroupSelections(prev => 
+      prev.map(mg => 
+        mg.muscleGroup === muscleGroup 
+          ? { ...mg, isOpen: !mg.isOpen }
+          : mg
+      )
+    )
+  }
 
-    const randomExercise = availableExercises[Math.floor(Math.random() * availableExercises.length)]
-    const newWorkout = [...generatedWorkout]
-    newWorkout[index] = randomExercise
-    setGeneratedWorkout(newWorkout)
+  const getExercisesForMuscleGroup = (muscleGroup: string) => {
+    return exercises.filter(ex => ex.muscleGroup === muscleGroup)
+  }
+
+  const getExercisesByType = (muscleGroup: string, exerciseType: string) => {
+    return exercises.filter(ex => 
+      ex.muscleGroup === muscleGroup && ex.exerciseType === exerciseType
+    )
+  }
+
+  const getTotalSelectedExercises = () => {
+    return muscleGroupSelections.reduce((total, mg) => total + mg.selectedExercises.length, 0)
   }
 
   const saveWorkout = async () => {
-    if (generatedWorkout.length === 0) return
+    const totalExercises = getTotalSelectedExercises()
+    if (totalExercises === 0) {
+      alert('Выберите хотя бы одно упражнение')
+      return
+    }
 
     setLoading(true)
     try {
@@ -100,45 +125,45 @@ export default function WorkoutGeneratorPage() {
         id: workoutId,
         userId: user.id,
         name: workoutName,
-        muscleGroups: selectedMuscleGroups,
-        // Сохраняем также в старом формате для совместимости
-        muscleGroup: selectedMuscleGroups[0] || '',
+        muscleGroups: JSON.stringify(selectedMuscleGroups),
+        muscleGroup: selectedMuscleGroups[0] || '', // Для обратной совместимости
         status: 'planned',
         createdAt: new Date().toISOString()
       })
 
       // Добавляем упражнения в тренировку
-      for (let i = 0; i < generatedWorkout.length; i++) {
-        const exercise = generatedWorkout[i]
-        
-        // Получаем последний вес для этого упражнения
-        const progressData = await blink.db.exerciseProgress.list({
-          where: { 
-            userId: user.id,
-            exerciseId: exercise.id
-          },
-          orderBy: { workoutDate: 'desc' },
-          limit: 1
-        })
+      let orderIndex = 0
+      for (const mgSelection of muscleGroupSelections) {
+        for (const exercise of mgSelection.selectedExercises) {
+          // Получаем последний вес для этого упражнения
+          const progressData = await blink.db.exerciseProgress.list({
+            where: { 
+              userId: user.id,
+              exerciseId: exercise.id
+            },
+            orderBy: { workoutDate: 'desc' },
+            limit: 1
+          })
 
-        const lastWeight = progressData.length > 0 ? progressData[0].weight : 0
+          const lastWeight = progressData.length > 0 ? progressData[0].weight : 0
 
-        await blink.db.workoutExercises.create({
-          id: `workout_exercise_${Date.now()}_${i}`,
-          workoutId,
-          exerciseId: exercise.id,
-          orderIndex: i,
-          currentWeight: lastWeight,
-          weightAchieved: 0,
-          createdAt: new Date().toISOString()
-        })
+          await blink.db.workoutExercises.create({
+            id: `workout_exercise_${Date.now()}_${orderIndex}`,
+            workoutId,
+            exerciseId: exercise.id,
+            orderIndex,
+            currentWeight: lastWeight,
+            weightAchieved: 0,
+            createdAt: new Date().toISOString()
+          })
+          orderIndex++
+        }
       }
 
-      // Очищаем сгенерированную тренировку
-      setGeneratedWorkout([])
+      // Сбрасываем состояние
       setSelectedMuscleGroups([])
-      setSelectedExerciseTypes(['main'])
-      setExerciseCount(3)
+      setMuscleGroupSelections([])
+      setStep('groups')
       
       alert('Тренировка сохранена! Перейдите на вкладку "Тренировка" для выполнения.')
     } catch (error) {
@@ -149,46 +174,36 @@ export default function WorkoutGeneratorPage() {
     }
   }
 
-  const toggleExerciseType = (type: string) => {
-    setSelectedExerciseTypes(prev => 
-      prev.includes(type) 
-        ? prev.filter(t => t !== type)
-        : [...prev, type]
-    )
+  const backToGroupSelection = () => {
+    setStep('groups')
+    setMuscleGroupSelections([])
   }
 
-  const getAvailableExercisesCount = () => {
-    return exercises.filter(exercise => 
-      selectedMuscleGroups.includes(exercise.muscleGroup) &&
-      selectedExerciseTypes.includes(exercise.exerciseType)
-    ).length
-  }
+  if (step === 'groups') {
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <h2 className="text-2xl font-bold">Генератор тренировок</h2>
+          <p className="text-muted-foreground">
+            Шаг 1: Выберите группы мышц для тренировки
+          </p>
+        </div>
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="text-center space-y-2">
-        <h2 className="text-2xl font-bold">Генератор тренировок</h2>
-        <p className="text-muted-foreground">
-          Создайте персональную тренировку на основе ваших упражнений
-        </p>
-      </div>
-
-      {/* Configuration */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Target className="w-5 h-5" />
-            Настройки тренировки
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Muscle Group Selection */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="w-5 h-5" />
+              Группы мышц
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Группы мышц *</Label>
+              <Label>Добавить группу мышц</Label>
               <Select onValueChange={addMuscleGroup}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Добавить группу мышц" />
+                  <SelectValue placeholder="Выберите группу мышц" />
                 </SelectTrigger>
                 <SelectContent>
                   {MUSCLE_GROUPS.filter(group => !selectedMuscleGroups.includes(group)).map((group) => (
@@ -196,10 +211,13 @@ export default function WorkoutGeneratorPage() {
                   ))}
                 </SelectContent>
               </Select>
-              
-              {/* Selected muscle groups */}
-              {selectedMuscleGroups.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
+            </div>
+            
+            {/* Selected muscle groups */}
+            {selectedMuscleGroups.length > 0 && (
+              <div className="space-y-2">
+                <Label>Выбранные группы мышц:</Label>
+                <div className="flex flex-wrap gap-2">
                   {selectedMuscleGroups.map((group) => (
                     <Badge key={group} variant="secondary" className="flex items-center gap-1">
                       {group}
@@ -214,143 +232,189 @@ export default function WorkoutGeneratorPage() {
                     </Badge>
                   ))}
                 </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label>Количество упражнений</Label>
-              <Select 
-                value={exerciseCount.toString()} 
-                onValueChange={(value) => setExerciseCount(parseInt(value))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 3, 4, 5, 6].map((num) => (
-                    <SelectItem key={num} value={num.toString()}>{num}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <Label>Типы упражнений</Label>
-            <div className="flex flex-wrap gap-2">
-              {EXERCISE_TYPES.map((type) => (
-                <Button
-                  key={type.value}
-                  variant={selectedExerciseTypes.includes(type.value) ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => toggleExerciseType(type.value)}
-                >
-                  {type.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          {selectedMuscleGroups.length > 0 && (
-            <div className="text-sm text-muted-foreground">
-              Доступно упражнений: {getAvailableExercisesCount()}
-            </div>
-          )}
-
-          <Button 
-            onClick={generateWorkout}
-            disabled={selectedMuscleGroups.length === 0 || selectedExerciseTypes.length === 0}
-            className="w-full"
-          >
-            <Zap className="w-4 h-4 mr-2" />
-            Сгенерировать тренировку
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Generated Workout */}
-      {generatedWorkout.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <span>Сгенерированная тренировка</span>
-              <Badge variant="secondary">{generatedWorkout.length} упражнений</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {generatedWorkout.map((exercise, index) => (
-              <div key={exercise.id}>
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-primary-foreground font-medium">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <h4 className="font-medium">{exercise.name}</h4>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <span>{exercise.sets} подходов</span>
-                          <span>{exercise.reps} повторений</span>
-                          <Badge variant="outline">
-                            {exercise.muscleGroup}
-                          </Badge>
-                          <Badge variant="outline">
-                            {EXERCISE_TYPES.find(t => t.value === exercise.exerciseType)?.label}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                    {exercise.technique && (
-                      <p className="text-sm text-muted-foreground mt-2 ml-11">
-                        {exercise.technique}
-                      </p>
-                    )}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => replaceExercise(index)}
-                    title="Заменить упражнение (только в рамках того же типа и группы мышц)"
-                  >
-                    <Shuffle className="w-4 h-4" />
-                  </Button>
+                
+                <div className="text-sm text-muted-foreground">
+                  Доступно упражнений: {exercises.filter(ex => selectedMuscleGroups.includes(ex.muscleGroup)).length}
                 </div>
-                {index < generatedWorkout.length - 1 && <Separator className="my-2" />}
               </div>
-            ))}
+            )}
 
-            <div className="flex gap-2 pt-4">
-              <Button onClick={saveWorkout} disabled={loading} className="flex-1">
-                {loading ? 'Сохранение...' : 'Сохранить тренировку'}
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={generateWorkout}
-                title="Сгенерировать заново"
-              >
-                <Shuffle className="w-4 h-4" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Empty State */}
-      {exercises.length === 0 && (
-        <Card>
-          <CardContent className="text-center py-12">
-            <Zap className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium mb-2">Нет упражнений</h3>
-            <p className="text-muted-foreground mb-4">
-              Добавьте упражнения, чтобы генерировать тренировки
-            </p>
-            <Button variant="outline">
-              <Plus className="w-4 h-4 mr-2" />
-              Добавить упражнения
+            <Button 
+              onClick={proceedToExerciseSelection}
+              disabled={selectedMuscleGroups.length === 0}
+              className="w-full"
+            >
+              <ChevronRight className="w-4 h-4 mr-2" />
+              Далее: Выбор упражнений
             </Button>
           </CardContent>
         </Card>
-      )}
+
+        {/* Empty State */}
+        {exercises.length === 0 && (
+          <Card>
+            <CardContent className="text-center py-12">
+              <Zap className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium mb-2">Нет упражнений</h3>
+              <p className="text-muted-foreground mb-4">
+                Добавьте упражнения, чтобы генерировать тренировки
+              </p>
+              <Button variant="outline">
+                <Plus className="w-4 h-4 mr-2" />
+                Добавить упражнения
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    )
+  }
+
+  // Exercise Selection Step
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="text-center space-y-2">
+        <h2 className="text-2xl font-bold">Генератор тренировок</h2>
+        <p className="text-muted-foreground">
+          Шаг 2: Выберите упражнения для каждой группы мышц
+        </p>
+        <div className="flex items-center justify-center gap-2">
+          {selectedMuscleGroups.map((group) => (
+            <Badge key={group} variant="secondary">{group}</Badge>
+          ))}
+        </div>
+      </div>
+
+      {/* Exercise Selection by Muscle Group */}
+      <div className="space-y-4">
+        {muscleGroupSelections.map((mgSelection) => {
+          const availableExercises = getExercisesForMuscleGroup(mgSelection.muscleGroup)
+          const selectedCount = mgSelection.selectedExercises.length
+          
+          return (
+            <Card key={mgSelection.muscleGroup}>
+              <Collapsible 
+                open={mgSelection.isOpen} 
+                onOpenChange={() => toggleMuscleGroupOpen(mgSelection.muscleGroup)}
+              >
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="cursor-pointer hover:bg-muted/50">
+                    <CardTitle className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span>{mgSelection.muscleGroup}</span>
+                        <Badge variant="outline">
+                          {selectedCount} из {availableExercises.length}
+                        </Badge>
+                      </div>
+                      {mgSelection.isOpen ? (
+                        <ChevronDown className="w-5 h-5" />
+                      ) : (
+                        <ChevronRight className="w-5 h-5" />
+                      )}
+                    </CardTitle>
+                  </CardHeader>
+                </CollapsibleTrigger>
+                
+                <CollapsibleContent>
+                  <CardContent className="space-y-4">
+                    {EXERCISE_TYPES.map((type) => {
+                      const typeExercises = getExercisesByType(mgSelection.muscleGroup, type.value)
+                      if (typeExercises.length === 0) return null
+                      
+                      return (
+                        <div key={type.value} className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline">{type.label}</Badge>
+                            <span className="text-sm text-muted-foreground">
+                              ({typeExercises.length} упражнений)
+                            </span>
+                          </div>
+                          
+                          <div className="grid gap-2">
+                            {typeExercises.map((exercise) => {
+                              const isSelected = mgSelection.selectedExercises.some(ex => ex.id === exercise.id)
+                              
+                              return (
+                                <div 
+                                  key={exercise.id}
+                                  className="flex items-center space-x-3 p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                                  onClick={() => toggleExerciseSelection(mgSelection.muscleGroup, exercise)}
+                                >
+                                  <Checkbox 
+                                    checked={isSelected}
+                                    onChange={() => toggleExerciseSelection(mgSelection.muscleGroup, exercise)}
+                                  />
+                                  <div className="flex-1">
+                                    <div className="font-medium">{exercise.name}</div>
+                                    <div className="text-sm text-muted-foreground">
+                                      {exercise.sets} подходов × {exercise.reps} повторений
+                                    </div>
+                                    {exercise.technique && (
+                                      <div className="text-xs text-muted-foreground mt-1">
+                                        {exercise.technique.substring(0, 100)}...
+                                      </div>
+                                    )}
+                                  </div>
+                                  {isSelected && (
+                                    <Check className="w-5 h-5 text-primary" />
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    
+                    {availableExercises.length === 0 && (
+                      <div className="text-center py-4 text-muted-foreground">
+                        Нет упражнений для группы "{mgSelection.muscleGroup}"
+                      </div>
+                    )}
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
+            </Card>
+          )
+        })}
+      </div>
+
+      {/* Summary and Actions */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-medium">Итого выбрано упражнений</h3>
+              <p className="text-sm text-muted-foreground">
+                {getTotalSelectedExercises()} упражнений из {selectedMuscleGroups.length} групп мышц
+              </p>
+            </div>
+            <Badge variant="secondary" className="text-lg px-3 py-1">
+              {getTotalSelectedExercises()}
+            </Badge>
+          </div>
+          
+          <Separator className="my-4" />
+          
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={backToGroupSelection}
+              className="flex-1"
+            >
+              Назад к группам мышц
+            </Button>
+            <Button 
+              onClick={saveWorkout}
+              disabled={loading || getTotalSelectedExercises() === 0}
+              className="flex-1"
+            >
+              {loading ? 'Сохранение...' : 'Создать тренировку'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
